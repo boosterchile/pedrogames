@@ -1,34 +1,67 @@
-# Náufrago: Supervivencia en la Selva
+# Náufrago: supervivencia con acertijos
 
-Juego de supervivencia en el navegador, en español y sin dependencias: un solo archivo `index.html` con HTML5 Canvas y JavaScript.
+Tu avión falla sobre el océano y cae en una isla cubierta de selva. Para escapar hay que sobrevivir con lo que la isla ofrece y superar pruebas de lógica. Pensado para jugadores de 10 a 13 años, solos o en salas privadas.
 
-Tu avión falla sobre el océano y se estrella en una isla cubierta de selva. Eres el único superviviente. Sobrevive con lo que la isla te ofrece y construye una balsa para escapar.
+El repositorio tiene dos versiones:
 
-## Cómo jugar
+| Carpeta | Qué es | Estado |
+|---|---|---|
+| `web3d/` + `server/` + `shared/` | **Náufrago 3D**: Three.js, salas privadas por WebSocket, acertijos de progresión | Corte vertical jugable |
+| `index.html` | Prototipo 2D original (canvas) con supervivencia clásica | Completo, se mantiene como referencia |
 
-Abre `index.html` en cualquier navegador moderno (o sírvelo con GitHub Pages). Funciona en escritorio y en móvil (controles táctiles en pantalla).
+## Náufrago 3D
 
-| Tecla | Acción |
-|---|---|
-| WASD / Flechas | Moverse |
-| E / Espacio | Interactuar con lo que tienes delante (o clic en el mundo) |
-| C | Abrir el panel de creación |
-| H | Ayuda |
-| Esc | Cerrar paneles |
-| M | Silenciar sonido |
-| L (inicio) | Continuar partida guardada |
+### Ejecutar
 
-`?seed=1234` en la URL genera siempre la misma isla.
+```bash
+npm install
+npm start          # http://localhost:8080
+npm test           # tests del servidor y de los acertijos
+```
 
-## Mecánicas
+`PORT=3000 npm start` cambia el puerto. El mismo proceso sirve el cliente y las salas.
 
-- **Necesidades**: salud, hambre, sed y energía. Si el hambre o la sed llegan a cero, pierdes salud.
-- **Recursos**: palos y madera (árboles, madera solo con hacha), cocos y hojas (palmeras), bayas (arbustos), piedras (rocas), cuerda (lianas de la selva) y chatarra, cuerda, vendas y botella en los restos del avión. Los recursos se regeneran con el tiempo.
-- **Agua**: bebe en el lago. El mar no se bebe, pero con lanza puedes pescar.
-- **Fauna**: los jabalíes te embisten. Con lanza puedes cazarlos y asar la carne.
-- **Día y noche**: de noche hace frío; una fogata te da calor y permite asar comida, y en el refugio puedes dormir hasta el amanecer.
-- **Creación**: hacha de piedra, lanza, fogata, refugio y balsa. Las construcciones se colocan delante del personaje.
-- **Fauna**: además de jabalíes, en la selva hay serpientes que muerden si te acercas. Un golpe de lanza acaba con ellas.
-- **Dos vías de escape**: construye la balsa (12 madera, 5 cuerda, 3 hojas, 2 chatarra) desde la playa mirando al mar y súbete, o levanta una hoguera de señales (8 madera, 3 hojas, 2 piedras) en la playa y mantenla encendida de día hasta que un barco vea el humo.
-- **Guardado**: la partida se guarda sola cada 15 segundos y al dormir. En la pantalla de inicio, pulsa `L` para continuar.
-- **Sonido**: efectos sintetizados con WebAudio, sin archivos. `M` silencia.
+### Cómo se juega
+
+- **Moverse**: WASD o flechas; en móvil, la palanca. **Cámara**: arrastrar con el ratón o el dedo; rueda para acercar.
+- **E** (o el botón E en móvil): interactuar con árboles, rocas, palmeras, lianas y estaciones.
+- **Progresión**: cinco estaciones en orden, cada una con materiales y un acertijo. Los iconos de arriba muestran cuál está disponible.
+- **Hablar**: solo frases predefinidas (💬 o tecla T). No hay chat libre a propósito.
+- **Necesidades**: hambre y sed bajan con el tiempo; cocos, bayas y el manantial las reponen. Si llegan a cero pierdes salud y despiertas junto al avión, sin perder progreso.
+
+### Acertijos
+
+Definidos en `shared/puzzles.mjs` como datos: enunciado, tipo (`number`, `choice`, `text`, `order`), pistas, materiales, recompensa, ayuda tras dos fallos y explicación al acertar. Añadir uno nuevo es añadir un objeto a la lista y una estación en el cliente.
+
+| Estación | Tipo | Habilidad |
+|---|---|---|
+| 🧳 La caja del piloto | secuencia numérica | patrones |
+| 🌉 El puente de lianas | lógica de orden | deducción |
+| 💧 El manantial | aritmética aplicada | proporciones |
+| 📡 La torre de señales | cifrado César | codificación |
+| ⛵ La balsa | ordenar por comparaciones | razonamiento transitivo |
+
+En una sala, las pistas de cada acertijo se reparten entre los jugadores; el botón "Compartir mi pista" la envía al grupo. Con un solo jugador se reciben todas.
+
+### Salas privadas y protección de menores
+
+- No hay salas públicas ni emparejamiento: quien crea la sala recibe un código de 5 letras y lo comparte. Máximo 6 jugadores.
+- Sin chat libre ni voz: el cliente solo puede enviar el identificador de una frase de la lista; el servidor rechaza cualquier otra cosa.
+- Alias generados (animal + adjetivo) en lugar de nombres reales. No se recoge ningún dato personal.
+- El servidor es autoritativo: valida las respuestas y nunca envía las soluciones al cliente.
+- Las salas viven solo en memoria mientras hay jugadores, con límite de tamaño de mensaje y de frecuencia.
+
+### Estructura
+
+```
+web3d/index.html      interfaz (HUD, panel de acertijo, pantallas)
+web3d/game.mjs        mundo 3D, personaje, interacción, transporte local y WebSocket
+shared/puzzles.mjs    acertijos, frases y alias
+shared/room.mjs       lógica de sala (la usan el servidor y el modo local)
+server/server.js      HTTP estático + WebSocket de salas
+test/                 tests con node:test
+```
+
+## Prototipo 2D
+
+Abre `index.html` en el navegador. Controles: WASD/flechas, E interactuar, C crear, H ayuda, M silencio, L continuar partida guardada. Incluye hambre, sed, energía, día y noche, jabalíes y serpientes, y dos vías de escape (balsa u hoguera de señales).

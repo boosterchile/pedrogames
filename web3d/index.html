@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Náufrago 3D</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%8F%9D%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;800&display=swap">
+<style>
+  :root{--panel:rgba(10,22,36,.82);--panel2:rgba(20,36,56,.92);--line:rgba(255,255,255,.22);--ink:#eef4fb;--muted:#a9b8c9;--accent:#f5b041;--good:#58d68d;--bad:#f1948a;--sea:#1b6fa8;--sand:#e6d391}
+  html,body{margin:0;height:100%;background:#0b1a2a;color:var(--ink);font-family:Nunito,system-ui,"Segoe UI",Roboto,sans-serif;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+  #app{position:absolute;inset:0}
+  canvas#c{position:absolute;inset:0;width:100%;height:100%;display:block;background:#7fc4f0}
+  .hidden{display:none !important}
+  button{font-family:inherit}
+  .btn{background:var(--panel2);border:1px solid var(--line);color:#fff;padding:8px 14px;border-radius:9px;font-size:14px;font-weight:800;cursor:pointer}
+  .btn:hover{background:rgba(255,255,255,.16)} .btn:disabled{opacity:.45;cursor:default}
+  .btn.primary{background:var(--accent);color:#1a1200;border-color:transparent}
+  .btn.small{padding:5px 9px;font-size:12px}
+  input,select{font-family:inherit;font-size:15px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:rgba(255,255,255,.08);color:#fff;outline:none}
+  input:focus{border-color:var(--accent)}
+
+  /* HUD */
+  #hud{position:absolute;inset:0;pointer-events:none;padding:calc(10px + env(safe-area-inset-top,0px)) 12px calc(10px + env(safe-area-inset-bottom,0px))}
+  #hud > *{pointer-events:auto}
+  #stats{position:absolute;left:12px;top:12px;display:flex;flex-direction:column;gap:5px}
+  .bar{width:170px;height:16px;background:rgba(0,0,0,.5);border:1px solid var(--line);border-radius:6px;position:relative;overflow:hidden}
+  .bar i{position:absolute;left:0;top:0;bottom:0;width:100%;transition:width .25s}
+  .bar.hp i{background:linear-gradient(#ff6b6b,#c0392b)} .bar.hunger i{background:linear-gradient(#f5b041,#d68910)} .bar.thirst i{background:linear-gradient(#5dade2,#2874a6)}
+  .bar span{position:absolute;left:7px;top:0;font-size:11px;line-height:16px;font-weight:800;text-shadow:0 1px 2px #000,0 0 3px #000}
+  #clock{font-size:13px;font-weight:800;background:var(--panel);padding:3px 8px;border-radius:6px;width:max-content;text-shadow:0 1px 2px #000}
+
+  #progress{position:absolute;left:50%;top:12px;transform:translateX(-50%);display:flex;gap:6px;background:var(--panel);padding:6px 8px;border-radius:12px;border:1px solid var(--line)}
+  .step{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;background:rgba(255,255,255,.06);border:2px solid transparent;position:relative;opacity:.45}
+  .step.available{opacity:1;border-color:var(--accent);box-shadow:0 0 10px rgba(245,176,65,.5)}
+  .step.solved{opacity:1;border-color:var(--good);background:rgba(88,214,141,.18)}
+  .step.solved::after{content:"✓";position:absolute;right:-4px;top:-6px;font-size:12px;background:var(--good);color:#082;border-radius:50%;width:16px;height:16px;line-height:16px;text-align:center;font-weight:800}
+
+  #room{position:absolute;right:12px;top:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 10px;min-width:170px;max-width:240px}
+  #room .code{font-size:12px;color:var(--muted)} #room .code b{color:#fff;font-size:16px;letter-spacing:2px}
+  #players{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:3px;font-size:13px}
+  #players li{display:flex;align-items:center;gap:6px} #players i{width:10px;height:10px;border-radius:50%;display:inline-block}
+  #topbtns{position:absolute;right:12px;top:118px;display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+
+  #log{position:absolute;left:12px;bottom:86px;display:flex;flex-direction:column;gap:3px;max-width:min(420px,70vw)}
+  #log div{background:var(--panel);padding:4px 9px;border-radius:6px;font-size:13px;line-height:1.3;border-left:3px solid #ccc;transition:opacity .8s}
+  #log .good{border-color:var(--good)} #log .warn{border-color:var(--accent)} #log .dim{border-color:#889;color:#ccd} #log .get{border-color:#7dcea0} #log .say{border-color:#8ab4f8} #log .fade{opacity:0}
+  #prompt{position:absolute;left:50%;bottom:120px;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--accent);padding:6px 14px;border-radius:9px;font-size:14px;font-weight:800;white-space:nowrap}
+  #inv{position:absolute;left:50%;bottom:calc(12px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);display:flex;gap:6px;background:var(--panel);padding:6px;border-radius:10px;min-height:44px;align-items:center;max-width:90vw;overflow-x:auto}
+  #inv:empty::after{content:"Inventario vacío · acércate a árboles, rocas y palmeras y pulsa E";font-size:12px;color:var(--muted);padding:0 8px;white-space:nowrap}
+  .slot{width:44px;height:44px;flex:none;background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:8px;position:relative;font-size:24px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .slot:hover{background:rgba(255,255,255,.2)} .slot b{position:absolute;right:3px;bottom:1px;font-size:11px;font-weight:800;text-shadow:0 0 3px #000,0 0 3px #000}
+
+  #phrases{position:absolute;right:12px;bottom:calc(64px + env(safe-area-inset-bottom,0px));background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:8px;display:grid;grid-template-columns:repeat(3,auto);gap:6px;max-width:min(420px,92vw)}
+  #phrases button{background:rgba(255,255,255,.08);border:1px solid var(--line);color:#fff;border-radius:8px;padding:6px 8px;font-size:13px;cursor:pointer;font-weight:700}
+  #phrases button:hover{background:rgba(255,255,255,.2)}
+
+  /* Panel de acertijo */
+  #puzzle{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,94vw);max-height:88vh;overflow:auto;background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:18px 20px;box-shadow:0 12px 40px rgba(0,0,0,.6)}
+  #puzzle h2{margin:0 0 6px;font-size:22px;text-wrap:balance} #puzzle .intro{color:var(--muted);font-size:14px;margin:0 0 10px;line-height:1.45}
+  #puzzle .prompt{font-size:16px;line-height:1.5;background:rgba(255,255,255,.06);border-left:3px solid var(--accent);padding:8px 12px;border-radius:6px;margin:0 0 12px}
+  #puzzle h4{margin:12px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  .clue{background:rgba(88,214,141,.12);border:1px solid rgba(88,214,141,.35);border-radius:8px;padding:6px 10px;font-size:14px;margin-bottom:5px;line-height:1.4}
+  .clue.other{background:rgba(138,180,248,.12);border-color:rgba(138,180,248,.4)}
+  .clue.missing{background:rgba(255,255,255,.04);border-style:dashed;color:var(--muted)}
+  #answer{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+  #answer input{flex:1;min-width:160px}
+  .chip{background:rgba(255,255,255,.1);border:1px solid var(--line);color:#fff;padding:8px 14px;border-radius:999px;font-size:15px;cursor:pointer;font-weight:700}
+  .chip:hover{background:rgba(255,255,255,.22)} .chip.picked{background:var(--accent);color:#1a1200;border-color:transparent}
+  #orderOut{display:flex;gap:6px;flex-wrap:wrap;min-height:38px;align-items:center;padding:6px;border:1px dashed var(--line);border-radius:8px;width:100%}
+  #orderOut:empty::after{content:"Toca los objetos en orden";color:var(--muted);font-size:13px}
+  #feedback{min-height:22px;font-size:14px;font-weight:700;margin:4px 0}
+  #feedback.ok{color:var(--good)} #feedback.bad{color:var(--bad)}
+  .hint{background:rgba(245,176,65,.12);border:1px solid rgba(245,176,65,.4);border-radius:8px;padding:8px 10px;font-size:14px;line-height:1.4}
+  .explain{background:rgba(88,214,141,.12);border:1px solid rgba(88,214,141,.4);border-radius:8px;padding:8px 10px;font-size:14px;line-height:1.45}
+  #puzzle .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;justify-content:flex-end}
+
+  /* Pantallas */
+  .screen{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(3,10,20,.72);padding:16px}
+  .card{width:min(520px,100%);background:var(--panel2);border:1px solid var(--line);border-radius:18px;padding:22px 24px;box-shadow:0 12px 40px rgba(0,0,0,.6)}
+  .card h1{margin:0 0 4px;font-size:30px;text-wrap:balance} .card .sub{color:var(--muted);margin:0 0 14px;line-height:1.45;font-size:14px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+  .swatch{width:28px;height:28px;border-radius:50%;border:3px solid transparent;cursor:pointer} .swatch.picked{border-color:#fff}
+  .modes{display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px}
+  .mode{background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .mode b{font-size:15px} .mode small{display:block;color:var(--muted);font-size:12px;line-height:1.35}
+  .mode .grow{flex:1;min-width:160px}
+  #joinCode{width:110px;text-transform:uppercase;letter-spacing:3px;font-weight:800;text-align:center}
+  .safety{font-size:12px;color:var(--muted);line-height:1.45;margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+  #err{color:var(--bad);font-size:13px;font-weight:700;min-height:18px}
+
+  /* Táctil */
+  #touch{position:absolute;inset:0;pointer-events:none}
+  #joy{position:absolute;left:24px;bottom:calc(90px + env(safe-area-inset-bottom,0px));width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.35);pointer-events:auto}
+  #joy i{position:absolute;left:35px;top:35px;width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.45)}
+  #tE{position:absolute;right:24px;bottom:calc(150px + env(safe-area-inset-bottom,0px));width:70px;height:70px;border-radius:50%;background:rgba(93,173,226,.45);border:2px solid rgba(255,255,255,.5);font-size:22px;font-weight:800;color:#fff;pointer-events:auto;display:flex;align-items:center;justify-content:center}
+  @media (max-width:640px){ .bar{width:120px} #room{max-width:150px;font-size:12px} #progress .step{width:32px;height:32px;font-size:17px} #log{bottom:150px;max-width:60vw} }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="c"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="stats">
+      <div class="bar hp"><i></i><span>❤️ Salud</span></div>
+      <div class="bar hunger"><i></i><span>🍖 Hambre</span></div>
+      <div class="bar thirst"><i></i><span>💧 Sed</span></div>
+      <div id="clock">☀️ Día 1</div>
+    </div>
+    <div id="progress"></div>
+    <div id="room"><div class="code">Sala <b id="roomCode">LOCAL</b></div><ul id="players"></ul></div>
+    <div id="topbtns"><button class="btn small" id="bPhrases">💬 Frases</button><button class="btn small" id="bHelp">❔ Ayuda</button></div>
+    <div id="log"></div>
+    <div id="prompt" class="hidden"></div>
+    <div id="inv"></div>
+    <div id="phrases" class="hidden"></div>
+  </div>
+
+  <div id="puzzle" class="hidden"></div>
+
+  <div id="help" class="screen hidden"><div class="card">
+    <h1>Cómo se juega</h1>
+    <p class="sub">Tu avión cayó en una isla. Para salir hay que resolver cinco pruebas y construir con lo que la selva ofrece.</p>
+    <p class="sub"><b>Moverse</b>: WASD o flechas (en móvil, la palanca). <b>Cámara</b>: arrastra con el ratón o el dedo. <b>E</b>: interactuar con lo que tengas cerca (árboles, rocas, palmeras, estaciones).</p>
+    <p class="sub"><b>Pruebas</b>: sigue los iconos de arriba en orden. Cada estación pide materiales y un acertijo. En sala, cada jugador recibe pistas distintas: compártelas con el botón del acertijo.</p>
+    <p class="sub"><b>Hablar</b>: solo con frases predefinidas (💬). No hay chat libre a propósito.</p>
+    <div class="actions row" style="justify-content:flex-end"><button class="btn primary" id="bHelpClose">Entendido</button></div>
+  </div></div>
+
+  <div id="start" class="screen"><div class="card">
+    <h1>Náufrago 3D</h1>
+    <p class="sub">Supervivencia con acertijos, para jugar solo o en una sala privada con tus compañeros.</p>
+    <div class="row"><label>Tu alias</label><b id="alias" style="font-size:18px"></b><button class="btn small" id="bAlias">🎲 Otro</button></div>
+    <div class="row"><label>Color</label><div id="colors" class="row" style="margin:0"></div></div>
+    <div class="modes">
+      <div class="mode"><div class="grow"><b>🏝️ Jugar solo</b><small>Modo local, sin conexión. Recibes todas las pistas.</small></div><button class="btn primary" id="bLocal">Empezar</button></div>
+      <div class="mode"><div class="grow"><b>🔒 Crear sala privada</b><small>Genera un código de 5 letras para tus compañeros. Máximo 6.</small></div><button class="btn" id="bCreate">Crear</button></div>
+      <div class="mode"><div class="grow"><b>🔑 Unirse a una sala</b><small>Pide el código a quien la creó.</small></div><input id="joinCode" maxlength="5" placeholder="CÓDIGO" autocomplete="off"><button class="btn" id="bJoin">Unirse</button></div>
+    </div>
+    <div id="err"></div>
+    <p class="safety">🛡️ Pensado para 10 a 13 años: sin salas públicas, sin chat libre, sin nombres reales. Las salas solo existen mientras hay jugadores y las respuestas se validan en el servidor.</p>
+  </div></div>
+
+  <div id="end" class="screen hidden"><div class="card"><h1 id="endTitle"></h1><p class="sub" id="endText"></p><div class="row" style="justify-content:flex-end"><button class="btn primary" id="bAgain">Jugar de nuevo</button></div></div></div>
+
+  <div id="touch" class="hidden"><div id="joy"><i></i></div><div id="tE">E</div></div>
+</div>
+<script type="importmap">{"imports":{"three":"/vendor/three.module.min.js"}}</script>
+<script type="module" src="/game.mjs"></script>
+</body>
+</html>
