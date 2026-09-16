@@ -1,0 +1,15 @@
+{
+  "name": "pedrogames",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Náufrago 3D: supervivencia con acertijos en salas privadas (web, Three.js)",
+  "scripts": {
+    "start": "node server/server.js",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "three": "0.160.0",
+    "ws": "8.21.3"
+  }
+}
