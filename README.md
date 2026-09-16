@@ -15,6 +15,8 @@ Abre `index.html` en cualquier navegador moderno (o sírvelo con GitHub Pages). 
 | C | Abrir el panel de creación |
 | H | Ayuda |
 | Esc | Cerrar paneles |
+| M | Silenciar sonido |
+| L (inicio) | Continuar partida guardada |
 
 `?seed=1234` en la URL genera siempre la misma isla.
 
@@ -26,4 +28,7 @@ Abre `index.html` en cualquier navegador moderno (o sírvelo con GitHub Pages). 
 - **Fauna**: los jabalíes te embisten. Con lanza puedes cazarlos y asar la carne.
 - **Día y noche**: de noche hace frío; una fogata te da calor y permite asar comida, y en el refugio puedes dormir hasta el amanecer.
 - **Creación**: hacha de piedra, lanza, fogata, refugio y balsa. Las construcciones se colocan delante del personaje.
-- **Objetivo**: reúne 12 madera, 5 cuerda, 3 hojas y 2 de chatarra, construye la balsa desde la playa mirando al mar y súbete para escapar.
+- **Fauna**: además de jabalíes, en la selva hay serpientes que muerden si te acercas. Un golpe de lanza acaba con ellas.
+- **Dos vías de escape**: construye la balsa (12 madera, 5 cuerda, 3 hojas, 2 chatarra) desde la playa mirando al mar y súbete, o levanta una hoguera de señales (8 madera, 3 hojas, 2 piedras) en la playa y mantenla encendida de día hasta que un barco vea el humo.
+- **Guardado**: la partida se guarda sola cada 15 segundos y al dormir. En la pantalla de inicio, pulsa `L` para continuar.
+- **Sonido**: efectos sintetizados con WebAudio, sin archivos. `M` silencia.

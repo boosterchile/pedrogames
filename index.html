@@ -80,7 +80,7 @@
     <div class="bar thirst"><i></i><span>💧 Sed</span></div>
     <div class="bar energy"><i></i><span>⚡ Energía</span></div>
     <div id="daybox">☀️ Día 1</div>
-    <div id="objective">🎯 Objetivo: construye una <b>balsa</b> para escapar de la isla.</div>
+    <div id="objective">🎯 Objetivo: escapa de la isla con una <b>balsa</b> o una <b>hoguera de señales</b>.</div>
   </div>
 
   <div id="topright" class="hidden">
@@ -88,6 +88,7 @@
     <div class="btnrow">
       <button class="btn" id="bCraft">🛠️ Crear (C)</button>
       <button class="btn" id="bHelp">❔ Ayuda (H)</button>
+      <button class="btn" id="bMute" title="Sonido (M)">🔊</button>
     </div>
   </div>
 
@@ -101,7 +102,9 @@
     <p>🌳 Árboles: palos con las manos, <b>madera</b> con hacha. 🌴 Palmeras: cocos y hojas. 🫐 Arbustos: bayas. 🪨 Rocas: piedras. 🌿 Lianas (selva): cuerda. ✈️ Restos del avión: rebusca varias veces.</p>
     <p>💧 Bebe en el <b>lago</b> (agua azul clara). El mar no se bebe, pero con lanza puedes pescar. 🐗 Los jabalíes atacan: con lanza puedes cazarlos.</p>
     <p>🌙 De noche hace frío: quédate junto a una <b>fogata</b> o duerme en el <b>refugio</b> (E) hasta el amanecer. Asa el pescado y la carne en la fogata.</p>
-    <p>⛵ Reúne materiales y construye la <b>balsa</b> en la playa mirando al mar. Súbete para escapar.</p>
+    <p>🐍 En la selva hay serpientes: muerden si te acercas. Un golpe de lanza acaba con ellas.</p>
+    <p>⛵ Dos formas de escapar: construye la <b>balsa</b> en la playa mirando al mar y súbete, o levanta una <b>hoguera de señales</b> en la playa y mantenla encendida de día hasta que un barco vea el humo.</p>
+    <p>💾 La partida se guarda sola cada 15 segundos y al dormir. Al abrir el juego, pulsa <kbd>L</kbd> en la pantalla de inicio para continuar. <kbd>M</kbd> silencia el sonido.</p>
   </div>
 
   <div id="overlay" class="hidden"><div class="box"><h1 id="ovTitle"></h1><p id="ovText"></p><button class="btn" id="bRestart">Jugar de nuevo</button></div></div>
@@ -134,7 +137,8 @@ const TILE=32, MW=56, MH=42, VW=960, VH=600;
 const DAY_LEN = 210;                      // segundos reales por día
 const T = {SEA:0, SAND:1, GRASS:2, JUNGLE:3, FRESH:4};
 const WALK = new Set([T.SAND, T.GRASS, T.JUNGLE]);
-const SOLID = new Set(['TREE','PALM','ROCK','WRECK','CAMPFIRE','SHELTER','RAFT']);
+const SOLID = new Set(['TREE','PALM','ROCK','WRECK','CAMPFIRE','SHELTER','RAFT','SIGNAL']);
+const SAVE_KEY='naufrago_save', MUTE_KEY='naufrago_mute';
 
 const ITEMS = {
   palo:        {n:'Palo',          i:'🥢', d:'Rama seca. Sirve para herramientas.'},
@@ -160,8 +164,14 @@ const RECIPES = [
   {id:'lanza',    n:'Lanza',           i:'🔱', req:{palo:2, piedra:1, cuerda:1}, tool:true, d:'Pescar en el mar y cazar jabalíes.'},
   {id:'CAMPFIRE', n:'Fogata',          i:'🔥', req:{madera:3, piedra:2}, place:true, d:'Calor de noche y asar comida. Aliméntala con madera.'},
   {id:'SHELTER',  n:'Refugio',         i:'🛖', req:{madera:6, hoja:4, cuerda:1}, place:true, d:'Dormir de noche y recuperar energía y salud.'},
+  {id:'SIGNAL',   n:'Hoguera de señales', i:'🚩', req:{madera:8, hoja:3, piedra:2}, place:true, sand:true, d:'Solo en la playa. Mantenla encendida de día y un barco verá el humo.'},
   {id:'RAFT',     n:'Balsa',           i:'⛵', req:{madera:12, cuerda:5, hoja:3, metal:2}, place:true, sea:true, d:'¡Tu vía de escape! Colócala desde la playa mirando al mar.'},
 ];
+const KINDS = {
+  boar:  {hp:100, speed:98, aggro:115, lose:280, dmg:9, atkCd:1.4, r:12, meat:2, tiles:[T.GRASS,T.JUNGLE], name:'jabalí'},
+  snake: {hp:30,  speed:62, aggro:70,  lose:150, dmg:6, atkCd:1.6, r:8,  meat:0, tiles:[T.JUNGLE], name:'serpiente'},
+};
+const SIGNAL_WATCH = 90;
 const FOOD = { bayas:[12,4,0], coco:[18,22,0], agua:[0,40,0], pez_crudo:[10,0,-6], pez_asado:[35,0,5], carne_cruda:[12,0,-10], carne_asada:[45,0,8], vendas:[0,0,35] };
 
 // ============================================================
@@ -202,6 +212,7 @@ function makeObj(type,x,y){
   if(type==='ROCK'){ o.hp=3; }
   if(type==='STUMP'){ o.regrow=240; }
   if(type==='CAMPFIRE'){ o.fuel=240; o.lit=true; }
+  if(type==='SIGNAL'){ o.fuel=200; o.lit=true; o.watch=0; }
   return o;
 }
 function genWorld(){
@@ -254,11 +265,12 @@ function placeWreck(){
   player.x=(wx+0.5)*TILE; player.y=(wy+1.5)*TILE;
 }
 function spawnBoar(b){
+  const k=KINDS[b.kind]||KINDS.boar;
   for(let i=0;i<400;i++){
     const x=1+Math.floor(Math.random()*(MW-2)), y=1+Math.floor(Math.random()*(MH-2)), t=tileAt(x,y);
-    if((t===T.GRASS||t===T.JUNGLE) && !objs.has(key(x,y))){
+    if(k.tiles.includes(t) && !objs.has(key(x,y))){
       const px=(x+.5)*TILE, py=(y+.5)*TILE;
-      if(dist(px,py,player.x,player.y)>320){ Object.assign(b,{x:px,y:py,hp:100,dead:false,state:'wander',t:0,vx:0,vy:0,fx:1,hurt:0,atk:0,r:12,respawn:0}); return; }
+      if(dist(px,py,player.x,player.y)>320){ Object.assign(b,{x:px,y:py,hp:k.hp,dead:false,state:'wander',t:0,vx:0,vy:0,fx:1,hurt:0,atk:0,r:k.r,respawn:0}); return; }
     }
   }
   b.dead=true; b.respawn=30;
@@ -270,6 +282,31 @@ function findSticksSpot(){
   }
   return null;
 }
+
+// ============================================================
+//  Sonido (sintetizado con WebAudio, sin archivos)
+// ============================================================
+let audio=null, muted=false;
+try{ muted=localStorage.getItem(MUTE_KEY)==='1'; }catch(e){}
+function ac(){ if(!audio){ try{ audio=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ audio=null; } } if(audio&&audio.state==='suspended') audio.resume().catch(()=>{}); return audio; }
+function tone(f,dur,type='square',vol=0.08,slide=0,delay=0){
+  if(muted) return; const a=ac(); if(!a) return;
+  const t0=a.currentTime+delay, o=a.createOscillator(), g=a.createGain();
+  o.type=type; o.frequency.setValueAtTime(f,t0); if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(30,f+slide),t0+dur);
+  g.gain.setValueAtTime(vol,t0); g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+  o.connect(g).connect(a.destination); o.start(t0); o.stop(t0+dur+0.02);
+}
+const SFX={
+  pick:  ()=>{ tone(660,0.07,'square',0.045); tone(990,0.09,'square',0.045,0,0.06); },
+  hit:   ()=>tone(170,0.12,'sawtooth',0.07,-90),
+  craft: ()=>{ tone(523,0.12,'triangle',0.08); tone(784,0.14,'triangle',0.08,0,0.11); tone(1046,0.22,'triangle',0.08,0,0.22); },
+  hurt:  ()=>tone(120,0.28,'sawtooth',0.1,-70),
+  eat:   ()=>tone(300,0.12,'sine',0.08,140),
+  fail:  ()=>tone(220,0.18,'square',0.045,-120),
+  splash:()=>tone(420,0.22,'sine',0.06,-280),
+  win:   ()=>[523,659,784,1046].forEach((f,i)=>tone(f,0.35,'triangle',0.1,0,i*0.16)),
+};
+function toggleMute(){ muted=!muted; try{ localStorage.setItem(MUTE_KEY,muted?'1':'0'); }catch(e){} $('#bMute').textContent=muted?'🔇':'🔊'; if(state==='play') msg(muted?'Sonido desactivado.':'Sonido activado.','dim'); }
 
 // ============================================================
 //  Inventario y mensajes
@@ -284,7 +321,7 @@ function msg(text, cls){
 }
 const count = it => inv[it]||0;
 const has = it => count(it)>0;
-function give(it,n=1,quiet=false){ inv[it]=(inv[it]||0)+n; invDirty=true; if(!quiet) msg(`+${n} ${ITEMS[it].n}`,'get'); }
+function give(it,n=1,quiet=false){ inv[it]=(inv[it]||0)+n; invDirty=true; if(!quiet){ msg(`+${n} ${ITEMS[it].n}`,'get'); SFX.pick(); } }
 function take(it,n=1){ inv[it]=Math.max(0,(inv[it]||0)-n); if(!inv[it]) delete inv[it]; invDirty=true; }
 function spendEnergy(n){ player.energy=clamp(player.energy-n,0,100); }
 function renderInv(){
@@ -302,7 +339,7 @@ function useItem(it){
   if(state!=='play') return;
   const eff=FOOD[it];
   if(!eff){ msg(`${ITEMS[it].n}: ${ITEMS[it].d}`,'dim'); return; }
-  take(it,1);
+  take(it,1); SFX.eat();
   player.hunger=clamp(player.hunger+eff[0],0,100); player.thirst=clamp(player.thirst+eff[1],0,100); player.hp=clamp(player.hp+eff[2],0,100);
   const txt={pez_crudo:'Comes el pez crudo... te sienta mal.', carne_cruda:'La carne cruda te revuelve el estómago.', vendas:'Te curas las heridas con las vendas.', agua:'Bebes agua de la botella.'}[it] || `Comes ${ITEMS[it].n.toLowerCase()}.`;
   msg(txt, eff[2]<0?'warn':'good');
@@ -334,7 +371,8 @@ function craft(r){
   let fx,fy;
   if(r.place){
     [fx,fy]=frontTile(); const t=tileAt(fx,fy), occ=objs.has(key(fx,fy));
-    if(r.sea && t!==T.SEA){ msg('La balsa se coloca en el mar: ponte en la playa mirando al agua.','warn'); return; }
+    if(r.sea && t!==T.SEA){ msg('La balsa se coloca en el mar: ponte en la playa mirando al agua.','warn'); SFX.fail(); return; }
+    if(r.sand && t!==T.SAND){ msg('La hoguera de señales debe estar en la playa, a la vista del mar.','warn'); SFX.fail(); return; }
     if(!r.sea && !WALK.has(t)){ msg('Necesitas suelo firme delante de ti para construir.','warn'); return; }
     if(occ){ msg('Ese lugar está ocupado. Muévete a un espacio libre.','warn'); return; }
   }
@@ -345,8 +383,9 @@ function craft(r){
     msg(`Construiste: ${r.n}.`,'good');
     if(r.id==='RAFT') msg('¡La balsa está lista! Súbete con E para escapar.','good');
     if(r.id==='CAMPFIRE') msg('La fogata arde. Añade madera para mantenerla.','dim');
+    if(r.id==='SIGNAL') msg('La hoguera humea. Mantenla encendida de día: un barco tardará en ver la señal.','dim');
   }
-  renderCraft();
+  SFX.craft(); renderCraft();
 }
 
 // ============================================================
@@ -370,7 +409,7 @@ function doInteract(){
 function useObject(o){
   switch(o.type){
     case 'TREE':
-      if(has('hacha')){ spendEnergy(3); o.hp--; give('madera',1); if(o.hp<=0){ objs.set(key(o.x,o.y),makeObj('STUMP',o.x,o.y)); msg('El árbol cayó.','dim'); } }
+      if(has('hacha')){ spendEnergy(3); o.hp--; SFX.hit(); give('madera',1); if(o.hp<=0){ objs.set(key(o.x,o.y),makeObj('STUMP',o.x,o.y)); msg('El árbol cayó.','dim'); } }
       else { spendEnergy(2); if(Math.random()<0.55) give('palo',1); else msg('Sacudes el árbol y no cae nada. Con un hacha conseguirías madera.','dim'); }
       break;
     case 'PALM':
@@ -385,7 +424,7 @@ function useObject(o){
       if(o.cuerdas>0){ o.cuerdas--; give('cuerda',1); spendEnergy(2); o.regrow=200; } else msg('No quedan lianas útiles aquí.','dim');
       break;
     case 'ROCK':
-      spendEnergy(3); o.hp--; give('piedra',1); if(o.hp<=0) objs.delete(key(o.x,o.y));
+      spendEnergy(3); o.hp--; SFX.hit(); give('piedra',1); if(o.hp<=0) objs.delete(key(o.x,o.y));
       break;
     case 'STICK': give('palo',1); objs.delete(key(o.x,o.y)); break;
     case 'STUMP': msg('Un tocón. El árbol volverá a crecer.','dim'); break;
@@ -394,6 +433,7 @@ function useObject(o){
       else msg('Solo quedan restos retorcidos del avión.','dim');
       break;
     case 'CAMPFIRE': useFire(o); break;
+    case 'SIGNAL': useSignal(o); break;
     case 'SHELTER': useShelter(); break;
     case 'RAFT': escape(); break;
   }
@@ -404,10 +444,19 @@ function useFire(o){
     else msg('La fogata está apagada. Necesitas madera para encenderla.','warn');
     return;
   }
-  if(has('pez_crudo')){ take('pez_crudo',1); give('pez_asado',1,true); msg('Asas el pescado. ¡Huele de maravilla!','good'); return; }
-  if(has('carne_cruda')){ take('carne_cruda',1); give('carne_asada',1,true); msg('Asas la carne de jabalí.','good'); return; }
+  if(has('pez_crudo')){ take('pez_crudo',1); give('pez_asado',1,true); msg('Asas el pescado. ¡Huele de maravilla!','good'); SFX.eat(); return; }
+  if(has('carne_cruda')){ take('carne_cruda',1); give('carne_asada',1,true); msg('Asas la carne de jabalí.','good'); SFX.eat(); return; }
   if(has('madera')){ take('madera',1); o.fuel=Math.min(o.fuel+120,600); msg('Añades madera al fuego.','dim'); return; }
   msg('La fogata arde. Trae pescado o carne para asar, o madera para alimentarla.','dim');
+}
+function useSignal(o){
+  if(!o.lit){
+    if(has('madera')){ take('madera',1); o.fuel=120; o.lit=true; msg('Vuelves a encender la hoguera de señales.','good'); }
+    else msg('La hoguera está apagada. Necesitas madera para encenderla.','warn');
+    return;
+  }
+  if(has('madera')){ take('madera',1); o.fuel=Math.min(o.fuel+90,500); msg(`Añades madera a la hoguera (${Math.round(o.fuel)} s de leña).`,'dim'); return; }
+  msg(darkness()>0.3?'De noche nadie verá el humo. Mantenla encendida hasta el día.':`El humo sube al cielo. Señal vista un ${Math.min(100,Math.round(o.watch/SIGNAL_WATCH*100))}%.`,'dim');
 }
 function useShelter(){
   if(darkness()>0.4){
@@ -416,7 +465,7 @@ function useShelter(){
     player.energy=100; player.hp=clamp(player.hp+20,0,100);
     player.hunger=clamp(player.hunger-22,0,100); player.thirst=clamp(player.thirst-28,0,100);
     for(const o of objs.values()) if(o.type==='CAMPFIRE'&&o.lit){ o.fuel-=toMorning; if(o.fuel<=0){ o.lit=false; o.fuel=0; } }
-    fade=1; msg(`Duermes hasta el amanecer. Comienza el día ${dayNum()}.`,'good');
+    fade=1; msg(`Duermes hasta el amanecer. Comienza el día ${dayNum()}.`,'good'); saveGame();
   } else {
     player.energy=clamp(player.energy+30,0,100); time+=DAY_LEN*0.05;
     player.hunger=clamp(player.hunger-4,0,100); player.thirst=clamp(player.thirst-5,0,100);
@@ -428,21 +477,53 @@ function drinkLake(){
   if(has('botella') && count('agua')<3){ give('agua',1,true); msg('Llenas la botella.','dim'); }
 }
 function fishOrSea(){
-  if(has('lanza')){ spendEnergy(4); player.cd=0.8; if(Math.random()<0.45){ give('pez_crudo',1,true); msg('¡Pescaste un pez!','good'); } else msg('El pez se escapa...','dim'); }
+  if(has('lanza')){ spendEnergy(4); player.cd=0.8; SFX.splash(); if(Math.random()<0.45){ give('pez_crudo',1,true); msg('¡Pescaste un pez!','good'); SFX.pick(); } else msg('El pez se escapa...','dim'); }
   else msg('El agua de mar no se puede beber. Con una lanza podrías pescar aquí.','warn');
 }
 function attackBoar(b){
-  const dmg=has('lanza')?40:8; b.hp-=dmg; b.hurt=0.25; b.state='chase'; spendEnergy(3);
-  if(b.hp<=0){ b.dead=true; b.respawn=300; give('carne_cruda',2,true); msg('Cazaste un jabalí: +2 carne cruda.','good'); }
-  else if(!has('lanza')) msg('Golpeas al jabalí con las manos. ¡Necesitas una lanza!','warn');
+  const k=KINDS[b.kind]||KINDS.boar;
+  const dmg=has('lanza')?40:8; b.hp-=dmg; b.hurt=0.25; b.state='chase'; spendEnergy(3); SFX.hit();
+  if(b.hp<=0){
+    b.dead=true; b.respawn=300;
+    if(k.meat){ give('carne_cruda',k.meat,true); msg(`Cazaste un ${k.name}: +${k.meat} carne cruda.`,'good'); }
+    else msg(`Matas a la ${k.name}.`,'good');
+  }
+  else if(!has('lanza')) msg(`Golpeas a la ${k.name==='jabalí'?'bestia':k.name} con las manos. ¡Necesitas una lanza!`,'warn');
 }
 function hurtPlayer(n,text){
-  player.hp=clamp(player.hp-n,0,100); player.hitFlash=0.3;
+  player.hp=clamp(player.hp-n,0,100); player.hitFlash=0.3; SFX.hurt();
   if(text && player.hurtCd<=0){ msg(text,'warn'); player.hurtCd=2; }
 }
-function escape(){ state='won'; showOverlay('¡Escapaste de la isla!', `Navegaste hacia el horizonte en tu balsa. Sobreviviste ${dayNum()} ${dayNum()===1?'día':'días'} en la selva con nada más que tu ingenio.`); }
-function die(cause){ state='dead'; showOverlay('No sobreviviste', `${cause} Aguantaste ${dayNum()} ${dayNum()===1?'día':'días'} en la isla.`); }
+function escape(){ state='won'; clearSave(); SFX.win(); showOverlay('¡Escapaste de la isla!', `Navegaste hacia el horizonte en tu balsa. Sobreviviste ${dayNum()} ${dayNum()===1?'día':'días'} en la selva con nada más que tu ingenio.`); }
+function rescue(){ state='won'; clearSave(); SFX.win(); showOverlay('¡Te han rescatado!', `Un barco vio la columna de humo y llegó hasta la playa. Sobreviviste ${dayNum()} ${dayNum()===1?'día':'días'} en la isla.`); }
+function die(cause){ state='dead'; clearSave(); SFX.hurt(); showOverlay('No sobreviviste', `${cause} Aguantaste ${dayNum()} ${dayNum()===1?'día':'días'} en la isla.`); }
 function showOverlay(t,txt){ $('#ovTitle').textContent=t; $('#ovText').textContent=txt; $('#overlay').classList.remove('hidden'); }
+
+// ============================================================
+//  Guardado (localStorage)
+// ============================================================
+let saveTimer=15;
+function hasSave(){ try{ return !!localStorage.getItem(SAVE_KEY); }catch(e){ return false; } }
+function clearSave(){ try{ localStorage.removeItem(SAVE_KEY); }catch(e){} }
+function saveGame(){
+  if(state!=='play') return false;
+  const data={v:1, seed:SEED, time, map:Array.from(map), lastNightWarnDay, duskHinted, inv:{...inv},
+    player:{x:player.x,y:player.y,dx:player.dx,dy:player.dy,hp:player.hp,hunger:player.hunger,thirst:player.thirst,energy:player.energy},
+    boars:boars.map(b=>({...b})),
+    objs:[...objs.values()].map(o=>{ const c={...o}; if(o.type==='WRECK'&&!o.main) delete c.loot; return c; })};
+  try{ localStorage.setItem(SAVE_KEY,JSON.stringify(data)); return true; }catch(e){ return false; }
+}
+function loadGame(){
+  let d; try{ d=JSON.parse(localStorage.getItem(SAVE_KEY)||'null'); }catch(e){ d=null; }
+  if(!d||d.v!==1||!Array.isArray(d.map)||d.map.length!==MW*MH) return false;
+  map.set(d.map); objs.clear(); coast.clear();
+  let loot=[]; for(const o of d.objs) if(o.type==='WRECK'&&o.main) loot=o.loot||[];
+  for(const o of d.objs){ if(o.type==='WRECK') o.loot=loot; objs.set(key(o.x,o.y),o); }
+  for(let y=0;y<MH;y++) for(let x=0;x<MW;x++) if(map[key(x,y)]===T.SEA && (WALK.has(tileAt(x-1,y))||WALK.has(tileAt(x+1,y))||WALK.has(tileAt(x,y-1))||WALK.has(tileAt(x,y+1)))) coast.add(key(x,y));
+  Object.assign(player,d.player); for(const k in inv) delete inv[k]; Object.assign(inv,d.inv||{});
+  boars=d.boars.map(b=>({kind:'boar',...b})); time=d.time; dayT=(time%DAY_LEN)/DAY_LEN; lastNightWarnDay=d.lastNightWarnDay||0; duskHinted=!!d.duskHinted;
+  buildMinimap(); invDirty=true; return true;
+}
 
 // ============================================================
 //  Tiempo, actualización
@@ -492,7 +573,7 @@ function update(dt){
   if(dk>0.5){
     let warm=false, sheltered=false;
     for(const o of objs.values()){
-      if(o.type==='CAMPFIRE'&&o.lit && dist(o.x*TILE+16,o.y*TILE+16,player.x,player.y)<115) warm=true;
+      if((o.type==='CAMPFIRE'||o.type==='SIGNAL')&&o.lit && dist(o.x*TILE+16,o.y*TILE+16,player.x,player.y)<115) warm=true;
       if(o.type==='SHELTER' && dist(o.x*TILE+16,o.y*TILE+16,player.x,player.y)<46) sheltered=true;
     }
     if(!warm&&!sheltered){
@@ -516,23 +597,29 @@ function update(dt){
       else if(o.type==='LIANA') o.cuerdas=2;
     } }
     if(o.type==='CAMPFIRE'&&o.lit){ o.fuel-=dt; if(o.fuel<=0){ o.lit=false; o.fuel=0; msg('Una fogata se apagó.','warn'); } }
+    if(o.type==='SIGNAL'&&o.lit){
+      o.fuel-=dt; if(o.fuel<=0){ o.lit=false; o.fuel=0; msg('La hoguera de señales se apagó. Añade madera.','warn'); }
+      else if(dk<0.3){ o.watch+=dt; if(o.watch>=SIGNAL_WATCH){ rescue(); return; } }
+    }
   }
   stickTimer-=dt;
   if(stickTimer<=0){ stickTimer=25; let n=0; for(const o of objs.values()) if(o.type==='STICK') n++; if(n<25){ const s=findSticksSpot(); if(s) objs.set(key(s[0],s[1]),makeObj('STICK',s[0],s[1])); } }
 
   for(const b of boars) updateBoar(b,dt);
+  saveTimer-=dt; if(saveTimer<=0){ saveTimer=15; saveGame(); }
 
   cam.x=clamp(player.x-VW/2,0,MW*TILE-VW); cam.y=clamp(player.y-VH/2,0,MH*TILE-VH);
 }
 function updateBoar(b,dt){
   if(b.dead){ b.respawn-=dt; if(b.respawn<=0) spawnBoar(b); return; }
+  const k=KINDS[b.kind]||KINDS.boar;
   b.hurt=Math.max(0,b.hurt-dt); b.atk=Math.max(0,b.atk-dt);
   const d=dist(b.x,b.y,player.x,player.y);
-  if(b.state==='chase'){ if(d>280) b.state='wander'; }
-  else if(d<115) b.state='chase';
+  if(b.state==='chase'){ if(d>k.lose) b.state='wander'; }
+  else if(d<k.aggro) b.state='chase';
   if(b.state==='chase'){
-    if(d>24){ const vx=(player.x-b.x)/d, vy=(player.y-b.y)/d; b.fx=vx<0?-1:1; tryMove(b,vx*98*dt,vy*98*dt); }
-    if(d<34 && b.atk<=0){ b.atk=1.4; hurtPlayer(9,'¡Un jabalí te embiste! Huye o defiéndete con E.'); }
+    if(d>24){ const vx=(player.x-b.x)/d, vy=(player.y-b.y)/d; b.fx=vx<0?-1:1; tryMove(b,vx*k.speed*dt,vy*k.speed*dt); }
+    if(d<34 && b.atk<=0){ b.atk=k.atkCd; hurtPlayer(k.dmg, b.kind==='snake'?'¡Una serpiente te muerde! Mátala con E o aléjate.':'¡Un jabalí te embiste! Huye o defiéndete con E.'); }
   } else {
     b.t-=dt;
     if(b.t<=0){ b.t=1+Math.random()*3; const a=Math.random()*Math.PI*2, sp=Math.random()<0.4?0:40; b.vx=Math.cos(a)*sp; b.vy=Math.sin(a)*sp; }
@@ -617,6 +704,18 @@ function drawObj(o){
         if(o.fuel<50){ ctx.fillStyle='#fff'; ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.fillText('🪵 poca leña',cx,y-4); }
       }
       break; }
+    case 'SIGNAL': {
+      ctx.fillStyle='rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(cx,y+29,16,5,0,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#6d6d6d'; for(let i=0;i<10;i++){ const a=i/10*Math.PI*2; ctx.beginPath(); ctx.arc(cx+Math.cos(a)*15,y+24+Math.sin(a)*6,3,0,Math.PI*2); ctx.fill(); }
+      ctx.strokeStyle=o.lit?'#6e4a25':'#2b2b2b'; ctx.lineWidth=5; ctx.beginPath(); ctx.moveTo(cx-12,y+27); ctx.lineTo(cx+10,y+14); ctx.moveTo(cx+12,y+27); ctx.lineTo(cx-10,y+14); ctx.moveTo(cx,y+28); ctx.lineTo(cx,y+12); ctx.stroke();
+      if(o.lit){
+        const f=Math.sin(time*13)*3, f2=Math.cos(time*10)*3;
+        ctx.fillStyle='rgba(255,120,0,.9)'; ctx.beginPath(); ctx.moveTo(cx-13,y+24); ctx.quadraticCurveTo(cx-6+f,y,cx,y-10+f2); ctx.quadraticCurveTo(cx+6-f,y,cx+13,y+24); ctx.closePath(); ctx.fill();
+        ctx.fillStyle='rgba(255,225,90,.95)'; ctx.beginPath(); ctx.moveTo(cx-6,y+24); ctx.quadraticCurveTo(cx-3+f2,y+10,cx,y+2+f); ctx.quadraticCurveTo(cx+3-f2,y+10,cx+6,y+24); ctx.closePath(); ctx.fill();
+        for(let i=0;i<7;i++){ const p=(time*0.35+i/7)%1; ctx.fillStyle=`rgba(90,90,100,${0.45*(1-p)})`; ctx.beginPath(); ctx.arc(cx+Math.sin(p*6+i)*10+p*14,y-12-p*110,8+p*18,0,Math.PI*2); ctx.fill(); }
+        ctx.fillStyle='#fff'; ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.fillText(o.fuel<50?'🪵 poca leña':`📡 ${Math.min(100,Math.round(o.watch/SIGNAL_WATCH*100))}%`,cx,y-4);
+      } else { ctx.fillStyle='#fff'; ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.fillText('apagada',cx,y-4); }
+      break; }
     case 'SHELTER': {
       ctx.fillStyle='rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(cx,y+30,18,5,0,0,Math.PI*2); ctx.fill();
       ctx.fillStyle='#8a6a3a'; ctx.beginPath(); ctx.moveTo(x-4,y+30); ctx.lineTo(cx,y-4); ctx.lineTo(x+36,y+30); ctx.closePath(); ctx.fill();
@@ -653,7 +752,20 @@ function drawPlayer(){
   if(player.hitFlash>0){ ctx.fillStyle=`rgba(255,0,0,${player.hitFlash})`; ctx.fillRect(-9,-21,18,38); }
   ctx.restore();
 }
+function drawSnake(b){
+  const x=b.x-cam.x, y=b.y-cam.y, w=Math.sin(time*9)*2;
+  ctx.save(); ctx.translate(x,y); ctx.scale(b.fx,1);
+  ctx.fillStyle='rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(0,6,14,3,0,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle=b.hurt>0?'#c0604a':'#3f8f2a'; ctx.lineWidth=5; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(-16,4); ctx.quadraticCurveTo(-10,-4+w,-4,3); ctx.quadraticCurveTo(2,8-w,8,2); ctx.stroke();
+  ctx.strokeStyle='#a9d95a'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(-14,4); ctx.quadraticCurveTo(-10,-2+w,-4,3); ctx.quadraticCurveTo(2,6-w,6,2); ctx.stroke();
+  ctx.fillStyle=b.hurt>0?'#c0604a':'#3f8f2a'; ctx.beginPath(); ctx.ellipse(11,1,5,3.5,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#ffd23f'; ctx.beginPath(); ctx.arc(13,0,1.2,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='#e74c3c'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(16,1); ctx.lineTo(20,0); ctx.moveTo(20,0); ctx.lineTo(22,-1.5); ctx.moveTo(20,0); ctx.lineTo(22,1.5); ctx.stroke();
+  ctx.restore();
+  if(b.hp<KINDS.snake.hp){ ctx.fillStyle='#000'; ctx.fillRect(x-12,y-12,24,3); ctx.fillStyle='#e74c3c'; ctx.fillRect(x-12,y-12,24*b.hp/KINDS.snake.hp,3); }
+}
 function drawBoar(b){
+  if(b.kind==='snake'){ drawSnake(b); return; }
   const x=b.x-cam.x, y=b.y-cam.y;
   ctx.save(); ctx.translate(x,y); ctx.scale(b.fx,1);
   ctx.fillStyle='rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(0,12,16,5,0,0,Math.PI*2); ctx.fill();
@@ -676,7 +788,7 @@ function drawNight(){
   dctx.fillStyle=`rgba(6,10,40,${a})`; dctx.fillRect(0,0,VW,VH);
   dctx.globalCompositeOperation='destination-out';
   light(player.x-cam.x,player.y-cam.y,85,0.55);
-  for(const o of objs.values()) if(o.type==='CAMPFIRE'&&o.lit) light(o.x*TILE+16-cam.x,o.y*TILE+18-cam.y,150+Math.sin(time*13)*6,1);
+  for(const o of objs.values()) if((o.type==='CAMPFIRE'||o.type==='SIGNAL')&&o.lit) light(o.x*TILE+16-cam.x,o.y*TILE+18-cam.y,(o.type==='SIGNAL'?190:150)+Math.sin(time*13)*6,1);
   ctx.drawImage(dark,0,0);
 }
 function drawWorld(){
@@ -707,7 +819,7 @@ function buildMinimap(){
 function drawMinimap(){
   mctx.imageSmoothingEnabled=false; mctx.drawImage(mmBase,0,0,mm.width,mm.height);
   const sx=mm.width/MW, sy=mm.height/MH;
-  for(const o of objs.values()){ if(o.type==='CAMPFIRE'&&o.lit){ mctx.fillStyle='#ff9f1a'; mctx.fillRect(o.x*sx-1,o.y*sy-1,3,3); } else if(o.type==='SHELTER'){ mctx.fillStyle='#fff'; mctx.fillRect(o.x*sx-1,o.y*sy-1,3,3); } else if(o.type==='WRECK'&&o.main){ mctx.fillStyle='#e74c3c'; mctx.fillRect(o.x*sx-1,o.y*sy-1,4,3); } }
+  for(const o of objs.values()){ if((o.type==='CAMPFIRE'||o.type==='SIGNAL')&&o.lit){ mctx.fillStyle='#ff9f1a'; mctx.fillRect(o.x*sx-1,o.y*sy-1,3,3); } else if(o.type==='SHELTER'){ mctx.fillStyle='#fff'; mctx.fillRect(o.x*sx-1,o.y*sy-1,3,3); } else if(o.type==='WRECK'&&o.main){ mctx.fillStyle='#e74c3c'; mctx.fillRect(o.x*sx-1,o.y*sy-1,4,3); } }
   mctx.fillStyle='#fff'; mctx.beginPath(); mctx.arc(player.x/TILE*sx,player.y/TILE*sy,2.2,0,Math.PI*2); mctx.fill();
   mctx.strokeStyle='rgba(255,255,255,.5)'; mctx.strokeRect(cam.x/TILE*sx,cam.y/TILE*sy,VW/TILE*sx,VH/TILE*sy);
 }
@@ -757,15 +869,17 @@ function drawIntro(){
     ctx.fillStyle=`rgba(0,0,0,${Math.min(1,(t-6.9)/0.6)})`; ctx.fillRect(0,0,VW,VH);
     ctx.textAlign='center'; ctx.font='600 22px system-ui,sans-serif';
     STORY.forEach((line,i)=>{ const a=clamp((t-7.6-i*1.15)/0.7,0,1); if(a>0){ ctx.fillStyle=`rgba(235,235,245,${a})`; ctx.fillText(line,VW/2,200+i*46); } });
-    if(t>12.2){ ctx.font='600 16px system-ui,sans-serif'; ctx.fillStyle=`rgba(255,220,120,${0.6+Math.sin(t*4)*0.4})`; ctx.fillText('Pulsa ESPACIO o toca la pantalla para empezar',VW/2,440); }
+    if(t>12.2){ ctx.font='600 16px system-ui,sans-serif'; ctx.fillStyle=`rgba(255,220,120,${0.6+Math.sin(t*4)*0.4})`; ctx.fillText('Pulsa ESPACIO o toca la pantalla para empezar',VW/2,440);
+      if(hasSave()){ ctx.fillStyle='rgba(200,230,255,.9)'; ctx.font='600 15px system-ui,sans-serif'; ctx.fillText('Pulsa L para continuar la partida guardada',VW/2,472); } }
   } else if(t>0.5){
     ctx.textAlign='left'; ctx.font='600 13px system-ui,sans-serif'; ctx.fillStyle='rgba(255,255,255,.7)'; ctx.fillText('ESPACIO para saltar',14,VH-14);
   }
   ctx.textAlign='left';
 }
 function advanceIntro(){ if(introT<6.9) introT=6.9; else if(introT<12.2) introT=12.2; else startGame(); }
-function startGame(){
-  state='play'; $('#hud').classList.remove('hidden'); $('#topright').classList.remove('hidden'); $('#inv').classList.remove('hidden');
+function startGame(load){
+  if(load){ if(!loadGame()){ msg('No hay partida guardada.','warn'); } else { state='play'; $('#hud').classList.remove('hidden'); $('#topright').classList.remove('hidden'); $('#inv').classList.remove('hidden'); if(('ontouchstart' in window)||navigator.maxTouchPoints>0) $('#touch').classList.remove('hidden'); cam.x=clamp(player.x-VW/2,0,MW*TILE-VW); cam.y=clamp(player.y-VH/2,0,MH*TILE-VH); msg(`Partida cargada. Día ${dayNum()}. La partida se guarda sola cada 15 s.`,'good'); return; } }
+  state='play'; clearSave(); $('#hud').classList.remove('hidden'); $('#topright').classList.remove('hidden'); $('#inv').classList.remove('hidden');
   if(('ontouchstart' in window)||navigator.maxTouchPoints>0) $('#touch').classList.remove('hidden');
   msg('Sobreviviste al accidente. Rebusca en los restos del avión (E).','good');
   msg('Recoge palos y piedras para fabricar un hacha. Pulsa C para ver recetas y H para ayuda.','dim');
@@ -777,9 +891,11 @@ function startGame(){
 addEventListener('keydown',e=>{
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
   if(e.repeat) return; keys[e.code]=true;
-  if(state==='intro'){ if(e.code==='Space'||e.code==='Enter') advanceIntro(); return; }
+  ac();
+  if(state==='intro'){ if(e.code==='Space'||e.code==='Enter') advanceIntro(); else if(e.code==='KeyL'&&hasSave()) startGame(true); else if(e.code==='KeyM') toggleMute(); return; }
   if(state!=='play') return;
   if(e.code==='KeyE'||e.code==='Space') doInteract();
+  else if(e.code==='KeyM') toggleMute();
   else if(e.code==='KeyC') toggleCraft();
   else if(e.code==='KeyH') toggleHelp();
   else if(e.code==='Escape') closePanels();
@@ -787,6 +903,7 @@ addEventListener('keydown',e=>{
 addEventListener('keyup',e=>{ keys[e.code]=false; });
 addEventListener('blur',()=>{ for(const k in keys) keys[k]=false; });
 canvas.addEventListener('pointerdown',e=>{
+  ac();
   if(state==='intro'){ advanceIntro(); return; }
   if(state!=='play') return;
   const r=canvas.getBoundingClientRect(); const wx=(e.clientX-r.left)/r.width*VW+cam.x, wy=(e.clientY-r.top)/r.height*VH+cam.y;
@@ -794,7 +911,7 @@ canvas.addEventListener('pointerdown',e=>{
   if(d>6){ player.dx=(wx-player.x)/d; player.dy=(wy-player.y)/d; }
   if(d<70) doInteract(); else msg('Acércate para interactuar con eso.','dim');
 });
-$('#bCraft').addEventListener('click',toggleCraft); $('#bHelp').addEventListener('click',toggleHelp);
+$('#bCraft').addEventListener('click',toggleCraft); $('#bHelp').addEventListener('click',toggleHelp); $('#bMute').addEventListener('click',()=>{ ac(); toggleMute(); }); $('#bMute').textContent=muted?'🔇':'🔊';
 $('#bRestart').addEventListener('click',()=>location.reload());
 for(const [id,k] of [['tU','up'],['tD','down'],['tL','left'],['tR','right']]){
   const el=$('#'+id); el.addEventListener('pointerdown',e=>{ e.preventDefault(); touch[k]=true; }); for(const ev of ['pointerup','pointercancel','pointerleave']) el.addEventListener(ev,()=>{ touch[k]=false; });
@@ -808,7 +925,7 @@ addEventListener('resize',resize); resize();
 //  Bucle principal
 // ============================================================
 genWorld(); placeWreck(); buildMinimap();
-boars=Array.from({length:4},()=>{ const b={dead:true,respawn:0}; spawnBoar(b); return b; });
+boars=['boar','boar','boar','boar','snake','snake','snake'].map(kind=>{ const b={kind,dead:true,respawn:0}; spawnBoar(b); return b; });
 cam.x=clamp(player.x-VW/2,0,MW*TILE-VW); cam.y=clamp(player.y-VH/2,0,MH*TILE-VH);
 let last=performance.now();
 function frame(now){
@@ -821,7 +938,7 @@ function frame(now){
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__game={player,objs,inv,boars,get state(){return state;},set state(v){state=v;},get time(){return time;},set time(v){time=v;},give,craft,RECIPES,doInteract,startGame,T,TILE,tileAt,key,MW,MH};
+window.__game={player,objs,inv,get boars(){return boars;},get state(){return state;},set state(v){state=v;},get time(){return time;},set time(v){time=v;},give,craft,RECIPES,doInteract,startGame,saveGame,loadGame,hasSave,T,TILE,tileAt,key,MW,MH,KINDS,SIGNAL_WATCH};
 })();
 </script>
 </body>
